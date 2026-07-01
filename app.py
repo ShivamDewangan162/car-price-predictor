@@ -1,12 +1,13 @@
 import streamlit as st
 import joblib
 import pandas as pd
+import requests
 
 # Load the trained model and column structure
 model = joblib.load('car_price_model.pkl')
 model_columns = joblib.load('model_columns.pkl')
 
-st.title("🚗 Used Car Price Predictor")
+st.title("🚗 carIQ — Used Car Price Predictor")
 st.write("Enter the car details below to get an estimated price.")
 
 # User inputs
@@ -22,8 +23,10 @@ engine = st.number_input("Engine (cc)", min_value=0, value=1200)
 max_power = st.number_input("Max Power (bhp)", min_value=0.0, value=80.0)
 seats = st.slider("Seats", 2, 10, 5)
 
+# Currency selector
+currency = st.selectbox("Show price in:", ["INR (₹)", "USD ($)", "EUR (€)", "GBP (£)"])
+
 if st.button("Predict Price"):
-    # Build a single-row dataframe matching training format
     input_dict = {
         'vehicle_age': vehicle_age,
         'km_driven': km_driven,
@@ -35,12 +38,10 @@ if st.button("Predict Price"):
 
     input_df = pd.DataFrame([input_dict])
 
-    # Add one-hot columns, all zero by default
     for col in model_columns:
         if col not in input_df.columns:
             input_df[col] = 0
 
-    # Set the relevant one-hot columns to 1 based on user input
     fuel_col = f'fuel_type_{fuel_type}'
     trans_col = f'transmission_type_{transmission_type}'
     seller_col = f'seller_type_{seller_type}'
@@ -51,8 +52,31 @@ if st.button("Predict Price"):
         if col in input_df.columns:
             input_df[col] = 1
 
-    # Match column order exactly to training
     input_df = input_df[model_columns]
 
     prediction = model.predict(input_df)[0]
+
+    # Always show INR first
     st.success(f"Estimated Price: ₹{prediction:,.0f}")
+
+    # Live currency conversion via external API
+    if currency != "INR (₹)":
+        try:
+            response = requests.get(
+                "https://api.exchangerate-api.com/v4/latest/INR",
+                timeout=5
+            )
+            rates = response.json()['rates']
+
+            currency_map = {
+                "USD ($)": ("USD", "$"),
+                "EUR (€)": ("EUR", "€"),
+                "GBP (£)": ("GBP", "£")
+            }
+
+            code, symbol = currency_map[currency]
+            converted = prediction * rates[code]
+            st.info(f"≈ {symbol}{converted:,.2f} {code} (live exchange rate 🌐)")
+
+        except Exception:
+            st.warning("Live currency conversion unavailable right now. Showing INR only.")
